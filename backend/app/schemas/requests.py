@@ -17,6 +17,8 @@ class RequestOut(BaseModel):
     content: str
     amount: float | None
     status: str
+    workflow_id: int | None
+    current_node_id: int | None
     created_by_user_id: int
     approver_user_id: int | None
     created_at: datetime

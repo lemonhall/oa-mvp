@@ -23,6 +23,7 @@ def list_users(
             role=u.role,
             is_active=u.is_active,
             department_id=u.department_id,
+            position_id=u.position_id,
         )
         for u in users
     ]
@@ -43,6 +44,7 @@ def create_user(
         full_name=body.full_name,
         role=body.role,
         department_id=body.department_id,
+        position_id=body.position_id,
         password_hash=hash_password(body.password),
         is_active=True,
     )
@@ -56,6 +58,7 @@ def create_user(
         role=user.role,
         is_active=user.is_active,
         department_id=user.department_id,
+        position_id=user.position_id,
     )
 
 
@@ -70,14 +73,17 @@ def update_user(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if body.full_name is not None:
-        user.full_name = body.full_name
-    if body.role is not None:
-        user.role = body.role
-    if body.department_id is not None:
-        user.department_id = body.department_id
-    if body.is_active is not None:
-        user.is_active = body.is_active
+    patch = body.model_dump(exclude_unset=True)
+    if "full_name" in patch:
+        user.full_name = patch["full_name"] or ""
+    if "role" in patch:
+        user.role = patch["role"] or "employee"
+    if "department_id" in patch:
+        user.department_id = patch["department_id"]
+    if "position_id" in patch:
+        user.position_id = patch["position_id"]
+    if "is_active" in patch:
+        user.is_active = bool(patch["is_active"])
 
     db.add(user)
     db.commit()
@@ -90,6 +96,7 @@ def update_user(
         role=user.role,
         is_active=user.is_active,
         department_id=user.department_id,
+        position_id=user.position_id,
     )
 
 

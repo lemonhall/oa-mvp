@@ -31,4 +31,5 @@ def me(user: User = Depends(get_current_user)) -> UserMe:
         role=user.role,
         is_active=user.is_active,
         department_id=user.department_id,
+        position_id=user.position_id,
     )

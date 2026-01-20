@@ -7,6 +7,7 @@ class UserCreate(BaseModel):
     full_name: str = ""
     role: str = "employee"
     department_id: int | None = None
+    position_id: int | None = None
 
 
 class UserOut(BaseModel):
@@ -16,12 +17,14 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     department_id: int | None
+    position_id: int | None
 
 
 class UserUpdate(BaseModel):
     full_name: str | None = None
     role: str | None = None
     department_id: int | None = None
+    position_id: int | None = None
     is_active: bool | None = None
 
 

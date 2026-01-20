@@ -40,10 +40,8 @@ function nav(me) {
     { hash: "#/dashboard", label: "首页" },
     { hash: "#/requests", label: "我的申请" },
     { hash: "#/new-request", label: "发起申请" },
+    { hash: "#/approvals", label: "待我审批" },
   ];
-  if (me?.role === "admin" || me?.role === "approver") {
-    items.push({ hash: "#/approvals", label: "待我审批" });
-  }
   if (me?.role === "admin") {
     items.push({ hash: "#/admin", label: "管理" });
   }
@@ -313,6 +311,205 @@ async function renderAdmin(me) {
   });
   container.appendChild(announce);
 
+  const posBox = el(`
+    <div class="item">
+      <div class="item-title">岗位（用于审批流节点）</div>
+      <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <input id="posName" class="input" style="max-width: 240px;" placeholder="岗位名称" />
+        <input id="posDesc" class="input" style="max-width: 380px;" placeholder="描述（可选）" />
+        <button id="posCreate" class="btn btn-primary">新增岗位</button>
+      </div>
+      <div style="margin-top: 10px;" id="posList"></div>
+    </div>
+  `);
+  async function refreshPositions() {
+    const listEl = posBox.querySelector("#posList");
+    listEl.replaceChildren();
+    try {
+      const items = await api.listPositions();
+      if (items.length === 0) {
+        listEl.appendChild(el(`<div class="muted">暂无岗位</div>`));
+        return;
+      }
+      const t = el(
+        `<table class="table"><thead><tr><th>ID</th><th>名称</th><th>描述</th></tr></thead><tbody></tbody></table>`
+      );
+      const tbody = t.querySelector("tbody");
+      for (const p of items) {
+        const tr = el(`<tr><td class="mono"></td><td></td><td class="muted"></td></tr>`);
+        tr.children[0].textContent = String(p.id);
+        tr.children[1].textContent = p.name;
+        tr.children[2].textContent = p.description || "";
+        tbody.appendChild(tr);
+      }
+      listEl.appendChild(t);
+    } catch (err) {
+      showError(posBox, err);
+    }
+  }
+  posBox.querySelector("#posCreate").addEventListener("click", async () => {
+    try {
+      const name = posBox.querySelector("#posName").value.trim();
+      const description = posBox.querySelector("#posDesc").value.trim();
+      await api.createPosition({ name, description });
+      posBox.querySelector("#posName").value = "";
+      posBox.querySelector("#posDesc").value = "";
+      await refreshPositions();
+    } catch (err) {
+      showError(posBox, err);
+    }
+  });
+  container.appendChild(posBox);
+
+  const flowBox = el(`
+    <div class="item">
+      <div class="item-title">审批流</div>
+      <div class="pill">每个节点绑定一个岗位；当前节点对应岗位的任意在职人员可审批</div>
+      <div class="row" style="margin-top: 10px;">
+        <div><input id="wfName" class="input" placeholder="审批流名称（唯一）" /></div>
+        <div>
+          <select id="wfType" class="input">
+            <option value="leave">leave（请假）</option>
+            <option value="reimburse">reimburse（报销）</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <label class="pill" style="cursor:pointer;">
+          <input id="wfActive" type="checkbox" checked />
+          <span>启用</span>
+        </label>
+        <button id="wfCreate" class="btn btn-primary">新建审批流</button>
+      </div>
+      <div style="margin-top: 12px;" id="wfList"></div>
+    </div>
+  `);
+
+  async function refreshWorkflows() {
+    const listEl = flowBox.querySelector("#wfList");
+    listEl.replaceChildren();
+    try {
+      const [workflows, positions] = await Promise.all([api.listWorkflows(), api.listPositions()]);
+      const posNameById = new Map(positions.map((p) => [p.id, p.name]));
+
+      if (workflows.length === 0) {
+        listEl.appendChild(el(`<div class="muted">暂无审批流</div>`));
+        return;
+      }
+
+      for (const wf of workflows) {
+        const item = el(`<div class="item"></div>`);
+        const header = el(`
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <div class="pill"><span class="mono">#${wf.id}</span></div>
+            <div style="font-weight:600;"></div>
+            <div class="pill">type: <span class="mono" data-wf-type></span></div>
+            <div class="spacer"></div>
+            <label class="pill" style="cursor:pointer;">
+              <input type="checkbox" />
+              <span>启用</span>
+            </label>
+          </div>
+        `);
+        header.children[1].textContent = wf.name;
+        header.querySelector("[data-wf-type]").textContent = wf.request_type;
+        const activeCb = header.querySelector('input[type="checkbox"]');
+        activeCb.checked = !!wf.is_active;
+        activeCb.addEventListener("change", async () => {
+          try {
+            await api.updateWorkflow(wf.id, { is_active: activeCb.checked });
+            await refreshWorkflows();
+          } catch (err) {
+            showError(flowBox, err);
+          }
+        });
+        item.appendChild(header);
+
+        const nodesWrap = el(`<div style="margin-top: 10px;"></div>`);
+        if (!wf.nodes || wf.nodes.length === 0) {
+          nodesWrap.appendChild(el(`<div class="muted">该审批流暂无节点（请求将无法发起）</div>`));
+        } else {
+          const t = el(
+            `<table class="table"><thead><tr><th>顺序</th><th>岗位</th><th>节点名</th><th>操作</th></tr></thead><tbody></tbody></table>`
+          );
+          const tbody = t.querySelector("tbody");
+          for (const n of wf.nodes) {
+            const tr = el(`<tr><td class="mono"></td><td></td><td></td><td></td></tr>`);
+            tr.children[0].textContent = String(n.step_order);
+            tr.children[1].textContent = `${posNameById.get(n.position_id) || "未知"} (#${n.position_id})`;
+            tr.children[2].textContent = n.name || "";
+            const delBtn = el(`<button class="btn btn-danger">删除</button>`);
+            delBtn.addEventListener("click", async () => {
+              if (!confirm("确认删除该节点？")) return;
+              try {
+                await api.deleteWorkflowNode(wf.id, n.id);
+                await refreshWorkflows();
+              } catch (err) {
+                showError(flowBox, err);
+              }
+            });
+            tr.children[3].appendChild(delBtn);
+            tbody.appendChild(tr);
+          }
+          nodesWrap.appendChild(t);
+        }
+        item.appendChild(nodesWrap);
+
+        const addForm = el(`
+          <div style="margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <input class="input" style="max-width:120px;" placeholder="顺序(1..)" />
+            <select class="input" style="min-width:180px;"></select>
+            <input class="input" style="min-width:220px;" placeholder="节点名（可选）" />
+            <button class="btn btn-secondary">新增节点</button>
+          </div>
+        `);
+        const orderEl = addForm.querySelector("input");
+        const posSel = addForm.querySelector("select");
+        const nameEl = addForm.querySelectorAll("input")[1];
+        posSel.appendChild(el(`<option value="">选择岗位</option>`));
+        for (const p of positions) {
+          const o = el(`<option></option>`);
+          o.value = String(p.id);
+          o.textContent = `${p.name} (#${p.id})`;
+          posSel.appendChild(o);
+        }
+        addForm.querySelector("button").addEventListener("click", async () => {
+          try {
+            const step_order = Number(orderEl.value || "0");
+            const position_id = Number(posSel.value || "0");
+            const name = nameEl.value.trim();
+            await api.addWorkflowNode(wf.id, { step_order, position_id, name });
+            orderEl.value = "";
+            posSel.value = "";
+            nameEl.value = "";
+            await refreshWorkflows();
+          } catch (err) {
+            showError(flowBox, err);
+          }
+        });
+        item.appendChild(addForm);
+
+        listEl.appendChild(item);
+      }
+    } catch (err) {
+      showError(flowBox, err);
+    }
+  }
+
+  flowBox.querySelector("#wfCreate").addEventListener("click", async () => {
+    try {
+      const name = flowBox.querySelector("#wfName").value.trim();
+      const request_type = flowBox.querySelector("#wfType").value;
+      const is_active = !!flowBox.querySelector("#wfActive").checked;
+      await api.createWorkflow({ name, request_type, is_active });
+      flowBox.querySelector("#wfName").value = "";
+      await refreshWorkflows();
+    } catch (err) {
+      showError(flowBox, err);
+    }
+  });
+  container.appendChild(flowBox);
+
   const deptBox = el(`
     <div class="item">
       <div class="item-title">部门</div>
@@ -373,9 +570,10 @@ async function renderAdmin(me) {
             <option value="admin">admin</option>
           </select>
         </div>
-        <div>
-          <select id="uDept" class="input"></select>
-        </div>
+        <div><select id="uDept" class="input"></select></div>
+      </div>
+      <div style="margin-top: 10px;">
+        <select id="uPos" class="input"></select>
       </div>
       <div style="margin-top: 10px;">
         <input id="uPassword" class="input" placeholder="初始密码（>=6位）" type="password" />
@@ -387,17 +585,26 @@ async function renderAdmin(me) {
     </div>
   `);
 
-  async function refreshUserDepsIntoSelect() {
-    const sel = userBox.querySelector("#uDept");
-    sel.replaceChildren();
-    const empty = el(`<option value="">（无部门）</option>`);
-    sel.appendChild(empty);
-    const depts = await api.listDepts();
+  async function refreshUserAuxIntoSelects() {
+    const deptSel = userBox.querySelector("#uDept");
+    deptSel.replaceChildren();
+    deptSel.appendChild(el(`<option value="">（无部门）</option>`));
+    const posSel = userBox.querySelector("#uPos");
+    posSel.replaceChildren();
+    posSel.appendChild(el(`<option value="">（无岗位）</option>`));
+
+    const [depts, positions] = await Promise.all([api.listDepts(), api.listPositions()]);
     for (const d of depts) {
       const o = el(`<option></option>`);
       o.value = String(d.id);
       o.textContent = `${d.name} (#${d.id})`;
-      sel.appendChild(o);
+      deptSel.appendChild(o);
+    }
+    for (const p of positions) {
+      const o = el(`<option></option>`);
+      o.value = String(p.id);
+      o.textContent = `${p.name} (#${p.id})`;
+      posSel.appendChild(o);
     }
   }
 
@@ -405,8 +612,13 @@ async function renderAdmin(me) {
     const listEl = userBox.querySelector("#userList");
     listEl.replaceChildren();
     try {
-      const [users, depts] = await Promise.all([api.listUsers(), api.listDepts()]);
+      const [users, depts, positions] = await Promise.all([
+        api.listUsers(),
+        api.listDepts(),
+        api.listPositions(),
+      ]);
       const deptNameById = new Map(depts.map((d) => [d.id, d.name]));
+      const posNameById = new Map(positions.map((p) => [p.id, p.name]));
 
       if (users.length === 0) {
         listEl.appendChild(el(`<div class="muted">暂无用户</div>`));
@@ -422,6 +634,7 @@ async function renderAdmin(me) {
               <th>姓名</th>
               <th>角色</th>
               <th>部门</th>
+              <th>岗位</th>
               <th>状态</th>
               <th>操作</th>
             </tr>
@@ -433,7 +646,6 @@ async function renderAdmin(me) {
 
       for (const u of users) {
         const tr = el(`<tr></tr>`);
-        const deptName = u.department_id ? deptNameById.get(u.department_id) || "" : "";
         tr.appendChild(el(`<td class="mono">${u.id}</td>`));
         tr.appendChild(el(`<td class="mono"></td>`));
         tr.children[1].textContent = u.username;
@@ -465,6 +677,19 @@ async function renderAdmin(me) {
         deptTd.appendChild(deptSel);
         tr.appendChild(deptTd);
 
+        const posTd = el(`<td></td>`);
+        const posSel = el(`<select class="input" style="min-width: 160px;"></select>`);
+        posSel.appendChild(el(`<option value="">（无）</option>`));
+        for (const p of positions) {
+          const o = el(`<option></option>`);
+          o.value = String(p.id);
+          o.textContent = p.name;
+          posSel.appendChild(o);
+        }
+        posSel.value = u.position_id ? String(u.position_id) : "";
+        posTd.appendChild(posSel);
+        tr.appendChild(posTd);
+
         const activeTd = el(`<td></td>`);
         const activeSel = el(`
           <select class="input" style="min-width: 110px;">
@@ -489,6 +714,7 @@ async function renderAdmin(me) {
             await api.updateUser(u.id, {
               role: roleSel.value,
               department_id: deptSel.value ? Number(deptSel.value) : null,
+              position_id: posSel.value ? Number(posSel.value) : null,
               is_active: activeSel.value === "true",
             });
             await refreshUsers();
@@ -512,7 +738,7 @@ async function renderAdmin(me) {
       }
 
       listEl.appendChild(t);
-      userBox.querySelector(".pill").textContent = `共 ${users.length} 个用户`;
+      userBox.querySelector(".pill").textContent = `共 ${users.length} 个用户（岗位数：${posNameById.size}）`;
     } catch (err) {
       showError(userBox, err);
     }
@@ -524,6 +750,7 @@ async function renderAdmin(me) {
       const fullName = userBox.querySelector("#uFullName").value.trim();
       const role = userBox.querySelector("#uRole").value;
       const dept = userBox.querySelector("#uDept").value;
+      const pos = userBox.querySelector("#uPos").value;
       const password = userBox.querySelector("#uPassword").value;
 
       await api.createUser({
@@ -532,6 +759,7 @@ async function renderAdmin(me) {
         full_name: fullName,
         role,
         department_id: dept ? Number(dept) : null,
+        position_id: pos ? Number(pos) : null,
       });
 
       userBox.querySelector("#uUsername").value = "";
@@ -549,7 +777,9 @@ async function renderAdmin(me) {
 
   try {
     await refreshDepts();
-    await refreshUserDepsIntoSelect();
+    await refreshPositions();
+    await refreshWorkflows();
+    await refreshUserAuxIntoSelects();
     await refreshUsers();
   } catch (err) {
     showError(container, err);

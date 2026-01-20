@@ -54,4 +54,16 @@ export const api = {
   updateUser: (id, payload) => request(`/api/users/${id}`, { method: "PATCH", body: payload }),
   setUserPassword: (id, password) =>
     request(`/api/users/${id}/password`, { method: "PUT", body: { password } }),
+
+  listPositions: () => request("/api/positions"),
+  createPosition: (payload) => request("/api/positions", { method: "POST", body: payload }),
+
+  listWorkflows: (requestType) =>
+    requestType ? request(`/api/workflows?request_type=${encodeURIComponent(requestType)}`) : request("/api/workflows"),
+  createWorkflow: (payload) => request("/api/workflows", { method: "POST", body: payload }),
+  updateWorkflow: (id, payload) => request(`/api/workflows/${id}`, { method: "PATCH", body: payload }),
+  addWorkflowNode: (workflowId, payload) =>
+    request(`/api/workflows/${workflowId}/nodes`, { method: "POST", body: payload }),
+  deleteWorkflowNode: (workflowId, nodeId) =>
+    request(`/api/workflows/${workflowId}/nodes/${nodeId}`, { method: "DELETE" }),
 };

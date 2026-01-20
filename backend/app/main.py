@@ -10,8 +10,10 @@ from backend.app.api.routers import (
     approvals,
     auth,
     depts,
+    positions,
     requests,
     users,
+    workflows,
 )
 from backend.app.core.config import settings
 from backend.app.db.init_db import init_db
@@ -36,6 +38,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(depts.router)
+app.include_router(positions.router)
+app.include_router(workflows.router)
 app.include_router(announcements.router)
 app.include_router(requests.router)
 app.include_router(approvals.router)

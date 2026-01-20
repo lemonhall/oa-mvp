@@ -18,3 +18,4 @@ class UserMe(BaseModel):
     role: str
     is_active: bool
     department_id: int | None
+    position_id: int | None
