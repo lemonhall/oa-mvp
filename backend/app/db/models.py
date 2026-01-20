@@ -66,6 +66,19 @@ class Announcement(Base):
     created_by: Mapped[User] = relationship()
 
 
+class ProcessType(Base):
+    __tablename__ = "process_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str] = mapped_column(String(255), default="")
+    schema_json: Mapped[str] = mapped_column(Text, default="[]")
+    requires_amount: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Workflow(Base):
     __tablename__ = "workflows"
 
@@ -98,10 +111,11 @@ class OARequest(Base):
     __tablename__ = "oa_requests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    type: Mapped[str] = mapped_column(String(30), index=True)
+    type: Mapped[str] = mapped_column(String(50), index=True)
     title: Mapped[str] = mapped_column(String(200), index=True)
     content: Mapped[str] = mapped_column(Text, default="")
     amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_json: Mapped[str] = mapped_column(Text, default="{}")
 
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
 

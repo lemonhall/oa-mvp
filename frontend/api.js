@@ -48,6 +48,8 @@ export const api = {
   decide: (id, decision, comment) =>
     request(`/api/approvals/${id}/decide`, { method: "POST", body: { decision, comment } }),
 
+  listProcessTypes: () => request("/api/process-types"),
+
   listDepts: () => request("/api/depts"),
   createDept: (name) => request("/api/depts", { method: "POST", body: { name } }),
   listUsers: () => request("/api/users"),

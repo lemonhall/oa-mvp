@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    request_type: str = Field(pattern="^(leave|reimburse)$")
+    request_type: str = Field(pattern="^[a-z][a-z0-9_]{1,49}$")
     is_active: bool = True
 
 
@@ -35,4 +35,3 @@ class WorkflowOut(BaseModel):
     is_active: bool
     created_at: datetime
     nodes: list[WorkflowNodeOut] = []
-

@@ -1,13 +1,15 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 class RequestCreate(BaseModel):
-    type: str = Field(pattern="^(leave|reimburse)$")
+    type: str = Field(pattern="^[a-z][a-z0-9_]{1,49}$")
     title: str = Field(min_length=1, max_length=200)
     content: str = ""
     amount: float | None = None
+    data: dict[str, Any] = {}
 
 
 class RequestOut(BaseModel):
@@ -59,6 +61,8 @@ class ApprovalHistoryItem(BaseModel):
 
 class RequestDetail(BaseModel):
     request: RequestOut
+    process_name: str | None = None
+    form_data: dict[str, Any] = {}
     workflow_name: str | None = None
     nodes: list[RequestNodeStatus] = []
     history: list[ApprovalHistoryItem] = []

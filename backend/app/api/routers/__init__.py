@@ -3,6 +3,7 @@ __all__ = [
     "users",
     "depts",
     "positions",
+    "process_types",
     "workflows",
     "announcements",
     "requests",

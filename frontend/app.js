@@ -5,6 +5,9 @@ const userBarEl = document.getElementById("userBar");
 const meTextEl = document.getElementById("meText");
 const logoutBtn = document.getElementById("logoutBtn");
 
+let PROCESS_TYPES = [];
+let PROCESS_BY_CODE = new Map();
+
 const TYPE_LABEL = {
   leave: "请假",
   reimburse: "报销",
@@ -24,7 +27,7 @@ const NODE_STATUS_LABEL = {
 };
 
 function labelType(type) {
-  return TYPE_LABEL[type] || type || "";
+  return PROCESS_BY_CODE.get(type)?.name || TYPE_LABEL[type] || type || "";
 }
 
 function labelStatus(status) {
@@ -33,6 +36,21 @@ function labelStatus(status) {
 
 function labelNodeStatus(status) {
   return NODE_STATUS_LABEL[status] || status || "";
+}
+
+async function ensureProcessTypes() {
+  if (PROCESS_TYPES.length) return;
+  try {
+    const items = await api.listProcessTypes();
+    PROCESS_TYPES = Array.isArray(items) ? items : [];
+    PROCESS_BY_CODE = new Map(PROCESS_TYPES.map((p) => [p.code, p]));
+  } catch {
+    PROCESS_TYPES = [
+      { code: "leave", name: "请假", requires_amount: false, fields: [] },
+      { code: "reimburse", name: "报销", requires_amount: true, fields: [] },
+    ];
+    PROCESS_BY_CODE = new Map(PROCESS_TYPES.map((p) => [p.code, p]));
+  }
 }
 
 logoutBtn.addEventListener("click", () => {
@@ -130,6 +148,8 @@ async function renderDashboard(me) {
   const root = el(`<div></div>`);
   root.appendChild(nav(me));
 
+  await ensureProcessTypes();
+
   const annWrap = el(`<div><div class="section-title">公告</div><div class="list" id="annList"></div></div>`);
   root.appendChild(annWrap);
 
@@ -196,6 +216,8 @@ async function renderRequestDetail(me, requestId) {
   const root = el(`<div></div>`);
   root.appendChild(nav(me));
 
+  await ensureProcessTypes();
+
   const wrap = el(`<div><div class="section-title">申请详情</div></div>`);
   root.appendChild(wrap);
 
@@ -210,7 +232,7 @@ async function renderRequestDetail(me, requestId) {
     const title = el(`<div class="item-title"></div>`);
     title.textContent = `【${labelType(r.type)}】${r.title} — ${labelStatus(r.status)}`;
     const meta = el(`<div class="muted"></div>`);
-    meta.textContent = `审批流程：${detail.workflow_name || "（未配置）"} | 单号：${r.id}`;
+    meta.textContent = `申请类型：${detail.process_name || labelType(r.type)} | 审批流程：${detail.workflow_name || "（未配置）"} | 单号：${r.id}`;
     head.appendChild(title);
     head.appendChild(meta);
 
@@ -225,6 +247,28 @@ async function renderRequestDetail(me, requestId) {
       head.appendChild(c);
     }
     box.appendChild(head);
+
+    const formData = detail.form_data || {};
+    const p = PROCESS_BY_CODE.get(r.type);
+    const fields = Array.isArray(p?.fields) ? p.fields : [];
+    const formBox = el(`<div style="margin-top:12px;"></div>`);
+    formBox.appendChild(el(`<div class="section-title">表单信息</div>`));
+    if (!fields.length) {
+      formBox.appendChild(el(`<div class="muted">（无额外表单字段）</div>`));
+    } else {
+      const t = el(
+        `<table class="table"><thead><tr><th>字段</th><th>值</th></tr></thead><tbody></tbody></table>`
+      );
+      const tbody = t.querySelector("tbody");
+      for (const f of fields) {
+        const tr = el(`<tr><td></td><td class="mono"></td></tr>`);
+        tr.children[0].textContent = f.label;
+        tr.children[1].textContent = formData?.[f.key] != null ? String(formData[f.key]) : "";
+        tbody.appendChild(tr);
+      }
+      formBox.appendChild(t);
+    }
+    box.appendChild(formBox);
 
     const flow = el(`<div style="margin-top:12px;"></div>`);
     flow.appendChild(el(`<div class="section-title">需要哪些岗位审批 / 当前状态</div>`));
@@ -325,22 +369,22 @@ async function renderNewRequest(me) {
   const root = el(`<div></div>`);
   root.appendChild(nav(me));
 
+  await ensureProcessTypes();
+
   const form = el(`
     <div>
       <div class="section-title">发起申请</div>
       <div class="row">
         <div>
-          <select id="type" class="input">
-            <option value="leave">请假</option>
-            <option value="reimburse">报销</option>
-          </select>
+          <select id="type" class="input"></select>
         </div>
         <div>
           <input id="title" class="input" placeholder="标题" />
         </div>
       </div>
-      <div style="margin-top: 12px;">
-        <input id="amount" class="input" placeholder="金额（报销必填）" />
+      <div style="margin-top: 12px;" id="dynamicFields"></div>
+      <div style="margin-top: 12px;" id="amountWrap" class="hidden">
+        <input id="amount" class="input" placeholder="金额（必填）" />
       </div>
       <div style="margin-top: 12px;">
         <textarea id="content" placeholder="内容说明（可选）"></textarea>
@@ -354,24 +398,90 @@ async function renderNewRequest(me) {
   const typeEl = form.querySelector("#type");
   const titleEl = form.querySelector("#title");
   const amountEl = form.querySelector("#amount");
+  const amountWrapEl = form.querySelector("#amountWrap");
   const contentEl = form.querySelector("#content");
   const submitBtn = form.querySelector("#submitBtn");
+  const fieldsWrap = form.querySelector("#dynamicFields");
 
-  typeEl.addEventListener("change", () => {
-    amountEl.disabled = typeEl.value !== "reimburse";
-    amountEl.value = "";
-  });
-  typeEl.dispatchEvent(new Event("change"));
+  function renderFields() {
+    fieldsWrap.replaceChildren();
+    const p = PROCESS_BY_CODE.get(typeEl.value);
+    if (!p) return;
+
+    amountWrapEl.classList.toggle("hidden", !p.requires_amount);
+    if (!p.requires_amount) amountEl.value = "";
+
+    const fields = Array.isArray(p.fields) ? p.fields : [];
+    if (!fields.length) return;
+
+    const grid = el(`<div class="row"></div>`);
+    for (const f of fields) {
+      const cell = el(`<div></div>`);
+      const label = el(`<div class="section-title"></div>`);
+      label.textContent = `${f.label}${f.required ? "（必填）" : ""}`;
+      cell.appendChild(label);
+
+      let input;
+      if (f.type === "textarea") {
+        input = el(`<textarea data-field-key="${f.key}" placeholder="${f.label}"></textarea>`);
+      } else if (f.type === "number") {
+        input = el(`<input class="input" data-field-key="${f.key}" type="number" placeholder="${f.label}" />`);
+      } else if (f.type === "date") {
+        input = el(`<input class="input" data-field-key="${f.key}" type="date" />`);
+      } else if (f.type === "datetime") {
+        input = el(`<input class="input" data-field-key="${f.key}" type="datetime-local" />`);
+      } else if (f.type === "select") {
+        input = el(`<select class="input" data-field-key="${f.key}"></select>`);
+        input.appendChild(el(`<option value="">请选择</option>`));
+        for (const opt of f.options || []) {
+          const o = el(`<option></option>`);
+          o.value = opt;
+          o.textContent = opt;
+          input.appendChild(o);
+        }
+      } else {
+        input = el(`<input class="input" data-field-key="${f.key}" placeholder="${f.label}" />`);
+      }
+
+      cell.appendChild(input);
+      grid.appendChild(cell);
+    }
+    fieldsWrap.appendChild(grid);
+  }
+
+  typeEl.replaceChildren();
+  if (PROCESS_TYPES.length === 0) {
+    typeEl.appendChild(el(`<option value="leave">请假</option>`));
+    typeEl.appendChild(el(`<option value="reimburse">报销</option>`));
+  } else {
+    for (const p of PROCESS_TYPES) {
+      const o = el(`<option></option>`);
+      o.value = p.code;
+      o.textContent = p.name;
+      typeEl.appendChild(o);
+    }
+  }
+  typeEl.addEventListener("change", renderFields);
+  renderFields();
 
   submitBtn.addEventListener("click", async () => {
     try {
+      const p = PROCESS_BY_CODE.get(typeEl.value) || {};
+      const data = {};
+      for (const elx of fieldsWrap.querySelectorAll("[data-field-key]")) {
+        const key = elx.getAttribute("data-field-key");
+        if (!key) continue;
+        data[key] = elx.value;
+      }
+
       const payload = {
         type: typeEl.value,
         title: titleEl.value.trim(),
         content: contentEl.value.trim(),
-        amount: typeEl.value === "reimburse" ? Number(amountEl.value || "0") : null,
+        amount: p.requires_amount ? Number(amountEl.value || "") : null,
+        data,
       };
-      if (payload.type === "reimburse" && (!amountEl.value || Number.isNaN(payload.amount))) {
+      if (p.requires_amount && (!amountEl.value || Number.isNaN(payload.amount))) {
         throw new Error("请输入有效金额");
       }
       await api.createRequest(payload);
@@ -389,6 +499,8 @@ async function renderNewRequest(me) {
 async function renderApprovals(me) {
   const root = el(`<div></div>`);
   root.appendChild(nav(me));
+
+  await ensureProcessTypes();
 
   const wrap = el(`<div><div class="section-title">待我审批</div><div class="list" id="list"></div></div>`);
   root.appendChild(wrap);
@@ -537,14 +649,11 @@ async function renderAdmin(me) {
   const flowBox = el(`
     <div class="item">
       <div class="item-title">审批流</div>
-      <div class="pill">每个节点绑定一个岗位；当前节点对应岗位的任意在职人员可审批</div>
+      <div class="pill">每个节点绑定一个岗位；同一类型只启用一个审批流（切换启用会自动关闭其他）</div>
       <div class="row" style="margin-top: 10px;">
         <div><input id="wfName" class="input" placeholder="审批流名称（唯一）" /></div>
         <div>
-          <select id="wfType" class="input">
-            <option value="leave">leave（请假）</option>
-            <option value="reimburse">reimburse（报销）</option>
-          </select>
+          <select id="wfType" class="input"></select>
         </div>
       </div>
       <div style="margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -562,8 +671,20 @@ async function renderAdmin(me) {
     const listEl = flowBox.querySelector("#wfList");
     listEl.replaceChildren();
     try {
+      await ensureProcessTypes();
       const [workflows, positions] = await Promise.all([api.listWorkflows(), api.listPositions()]);
       const posNameById = new Map(positions.map((p) => [p.id, p.name]));
+
+      const wfTypeSel = flowBox.querySelector("#wfType");
+      if (wfTypeSel && wfTypeSel.options.length === 0) {
+        wfTypeSel.appendChild(el(`<option value="">选择申请类型</option>`));
+        for (const p of PROCESS_TYPES) {
+          const o = el(`<option></option>`);
+          o.value = p.code;
+          o.textContent = p.name;
+          wfTypeSel.appendChild(o);
+        }
+      }
 
       if (workflows.length === 0) {
         listEl.appendChild(el(`<div class="muted">暂无审批流</div>`));
@@ -674,6 +795,7 @@ async function renderAdmin(me) {
       const name = flowBox.querySelector("#wfName").value.trim();
       const request_type = flowBox.querySelector("#wfType").value;
       const is_active = !!flowBox.querySelector("#wfActive").checked;
+      if (!request_type) throw new Error("请选择申请类型");
       await api.createWorkflow({ name, request_type, is_active });
       flowBox.querySelector("#wfName").value = "";
       await refreshWorkflows();

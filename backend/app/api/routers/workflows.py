@@ -62,9 +62,20 @@ def create_workflow(
 ) -> WorkflowOut:
     existing = db.scalar(select(Workflow).where(Workflow.name == body.name))
     if existing is not None:
-        raise HTTPException(status_code=400, detail="Workflow name already exists")
+        raise HTTPException(status_code=400, detail="审批流名称已存在")
     wf = Workflow(name=body.name, request_type=body.request_type, is_active=body.is_active)
     db.add(wf)
+    db.flush()
+    if wf.is_active:
+        others = db.scalars(
+            select(Workflow)
+            .where(Workflow.request_type == wf.request_type)
+            .where(Workflow.id != wf.id)
+            .where(Workflow.is_active.is_(True))
+        ).all()
+        for o in others:
+            o.is_active = False
+            db.add(o)
     db.commit()
     db.refresh(wf)
     return _workflow_out(db, wf)
@@ -78,7 +89,7 @@ def get_workflow(
 ) -> WorkflowOut:
     wf = db.get(Workflow, workflow_id)
     if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise HTTPException(status_code=404, detail="审批流不存在")
     return _workflow_out(db, wf)
 
 
@@ -91,11 +102,21 @@ def update_workflow(
 ) -> WorkflowOut:
     wf = db.get(Workflow, workflow_id)
     if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise HTTPException(status_code=404, detail="审批流不存在")
     if body.name is not None:
         wf.name = body.name
     if body.is_active is not None:
         wf.is_active = body.is_active
+        if wf.is_active:
+            others = db.scalars(
+                select(Workflow)
+                .where(Workflow.request_type == wf.request_type)
+                .where(Workflow.id != wf.id)
+                .where(Workflow.is_active.is_(True))
+            ).all()
+            for o in others:
+                o.is_active = False
+                db.add(o)
     db.add(wf)
     db.commit()
     db.refresh(wf)
@@ -111,10 +132,10 @@ def add_node(
 ) -> WorkflowNodeOut:
     wf = db.get(Workflow, workflow_id)
     if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise HTTPException(status_code=404, detail="审批流不存在")
     pos = db.get(Position, body.position_id)
     if pos is None:
-        raise HTTPException(status_code=404, detail="Position not found")
+        raise HTTPException(status_code=404, detail="岗位不存在")
 
     existing = db.scalar(
         select(WorkflowNode)
@@ -122,7 +143,7 @@ def add_node(
         .where(WorkflowNode.step_order == body.step_order)
     )
     if existing is not None:
-        raise HTTPException(status_code=400, detail="step_order already exists")
+        raise HTTPException(status_code=400, detail="该顺序号已存在")
 
     node = WorkflowNode(
         workflow_id=workflow_id,
@@ -145,7 +166,6 @@ def delete_node(
 ) -> None:
     node = db.get(WorkflowNode, node_id)
     if node is None or node.workflow_id != workflow_id:
-        raise HTTPException(status_code=404, detail="Node not found")
+        raise HTTPException(status_code=404, detail="节点不存在")
     db.delete(node)
     db.commit()
-

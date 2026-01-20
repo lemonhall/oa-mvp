@@ -11,6 +11,7 @@ from backend.app.api.routers import (
     auth,
     depts,
     positions,
+    process_types,
     requests,
     users,
     workflows,
@@ -39,6 +40,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(depts.router)
 app.include_router(positions.router)
+app.include_router(process_types.router)
 app.include_router(workflows.router)
 app.include_router(announcements.router)
 app.include_router(requests.router)

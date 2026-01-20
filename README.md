@@ -21,6 +21,12 @@ uv run uvicorn backend.app.main:app --reload
 - 管理员：`admin / admin123`
 - 审批人（主管岗）：`approver / approver123`
 - 财务（财务岗）：`finance / finance123`
+- 人事（人事岗）：`hr / hr123456`
+- 总经理（总经理岗）：`ceo / ceo123456`
+- 法务（法务岗）：`legal / legal123456`
+- 采购（采购岗）：`procurement / procurement123456`
+- 行政（行政岗）：`admin_affairs / adminaffairs123456`
+- IT（IT岗）：`it / it123456`
 - 员工：`employee / employee123`
 
 数据库文件默认是仓库根目录的 `oa.db`（删掉后重启会重新初始化）。
@@ -29,9 +35,13 @@ uv run uvicorn backend.app.main:app --reload
 
 - 登录：账号密码 + JWT
 - 公告：所有登录用户可看；admin 可发
-- 申请：请假 / 报销（员工发起；自动分配一个审批人）
+- 申请：支持多种申请类型（动态表单）；每种类型绑定一个启用的审批流
 - 审批：支持多节点审批流；当前节点对应岗位的在职人员可审批
 - 管理：admin 页面支持部门/用户/岗位管理、配置审批流、重置密码
+
+## 内置申请类型（可扩展）
+
+内置了常见 OA 类型：请假、报销、出差、加班、采购、付款、用章、合同、预算、借款、招聘、人事异动、资产、项目、开票、权限开通。
 
 ## 升级提示（重要）
 
