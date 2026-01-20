@@ -24,6 +24,14 @@ uv run uvicorn backend.app.main:app --reload
 
 数据库文件默认是仓库根目录的 `oa.db`（删掉后重启会重新初始化）。
 
+## 功能（当前 MVP）
+
+- 登录：账号密码 + JWT
+- 公告：所有登录用户可看；admin 可发
+- 申请：请假 / 报销（员工发起；自动分配一个审批人）
+- 审批：approver/admin 可在“待我审批”里同意/驳回
+- 管理：admin 页面支持部门/用户管理、重置密码
+
 ## 环境变量（可选）
 
 - `OA_SECRET_KEY`：JWT 密钥（生产环境务必修改）

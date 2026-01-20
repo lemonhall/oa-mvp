@@ -46,4 +46,12 @@ export const api = {
   listPendingApprovals: () => request("/api/approvals/pending"),
   decide: (id, decision, comment) =>
     request(`/api/approvals/${id}/decide`, { method: "POST", body: { decision, comment } }),
+
+  listDepts: () => request("/api/depts"),
+  createDept: (name) => request("/api/depts", { method: "POST", body: { name } }),
+  listUsers: () => request("/api/users"),
+  createUser: (payload) => request("/api/users", { method: "POST", body: payload }),
+  updateUser: (id, payload) => request(`/api/users/${id}`, { method: "PATCH", body: payload }),
+  setUserPassword: (id, password) =>
+    request(`/api/users/${id}/password`, { method: "PUT", body: { password } }),
 };

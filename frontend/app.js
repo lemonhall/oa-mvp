@@ -285,34 +285,275 @@ async function renderAdmin(me) {
   const root = el(`<div></div>`);
   root.appendChild(nav(me));
 
-  const wrap = el(`
-    <div>
-      <div class="section-title">管理（仅 admin）</div>
-      <div class="pill">提示：目前仅提供“发公告”，用户/部门管理可通过 API 扩展</div>
-      <div style="margin-top: 12px;" class="row">
-        <div><input id="title" class="input" placeholder="公告标题" /></div>
-        <div><input id="content" class="input" placeholder="公告内容（简短）" /></div>
+  const container = el(`<div></div>`);
+  container.appendChild(el(`<div class="section-title">管理（仅 admin）</div>`));
+
+  const announce = el(`
+    <div class="item">
+      <div class="item-title">发布公告</div>
+      <div class="row" style="margin-top: 10px;">
+        <div><input id="annTitle" class="input" placeholder="公告标题" /></div>
+        <div><input id="annContent" class="input" placeholder="公告内容（简短）" /></div>
       </div>
-      <div style="margin-top: 12px;">
-        <button id="publish" class="btn btn-primary">发布公告</button>
+      <div style="margin-top: 10px;">
+        <button id="publish" class="btn btn-primary">发布</button>
       </div>
     </div>
   `);
-
-  const titleEl = wrap.querySelector("#title");
-  const contentEl = wrap.querySelector("#content");
-  wrap.querySelector("#publish").addEventListener("click", async () => {
+  announce.querySelector("#publish").addEventListener("click", async () => {
     try {
-      await api.createAnnouncement(titleEl.value.trim(), contentEl.value.trim());
+      const title = announce.querySelector("#annTitle").value.trim();
+      const content = announce.querySelector("#annContent").value.trim();
+      await api.createAnnouncement(title, content);
       location.hash = "#/dashboard";
       await render();
     } catch (err) {
-      showError(wrap, err);
+      showError(announce, err);
+    }
+  });
+  container.appendChild(announce);
+
+  const deptBox = el(`
+    <div class="item">
+      <div class="item-title">部门</div>
+      <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <input id="deptName" class="input" style="max-width: 320px;" placeholder="部门名称" />
+        <button id="deptCreate" class="btn btn-primary">新增部门</button>
+      </div>
+      <div style="margin-top: 10px;" id="deptList"></div>
+    </div>
+  `);
+  async function refreshDepts() {
+    const listEl = deptBox.querySelector("#deptList");
+    listEl.replaceChildren();
+    try {
+      const depts = await api.listDepts();
+      if (depts.length === 0) {
+        listEl.appendChild(el(`<div class="muted">暂无部门</div>`));
+        return;
+      }
+      const t = el(`<table class="table"><thead><tr><th>ID</th><th>名称</th></tr></thead><tbody></tbody></table>`);
+      const tbody = t.querySelector("tbody");
+      for (const d of depts) {
+        const tr = el(`<tr><td class="mono"></td><td></td></tr>`);
+        tr.children[0].textContent = String(d.id);
+        tr.children[1].textContent = d.name;
+        tbody.appendChild(tr);
+      }
+      listEl.appendChild(t);
+    } catch (err) {
+      showError(deptBox, err);
+    }
+  }
+  deptBox.querySelector("#deptCreate").addEventListener("click", async () => {
+    try {
+      const name = deptBox.querySelector("#deptName").value.trim();
+      await api.createDept(name);
+      deptBox.querySelector("#deptName").value = "";
+      await refreshDepts();
+    } catch (err) {
+      showError(deptBox, err);
+    }
+  });
+  container.appendChild(deptBox);
+
+  const userBox = el(`
+    <div class="item">
+      <div class="item-title">用户</div>
+      <div class="pill">提示：可创建用户、设置角色/部门、重置密码</div>
+      <div class="row" style="margin-top: 10px;">
+        <div><input id="uUsername" class="input" placeholder="用户名" /></div>
+        <div><input id="uFullName" class="input" placeholder="姓名（可选）" /></div>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <div>
+          <select id="uRole" class="input">
+            <option value="employee">employee</option>
+            <option value="approver">approver</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div>
+          <select id="uDept" class="input"></select>
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <input id="uPassword" class="input" placeholder="初始密码（>=6位）" type="password" />
+      </div>
+      <div style="margin-top: 10px;">
+        <button id="uCreate" class="btn btn-primary">创建用户</button>
+      </div>
+      <div style="margin-top: 12px;" id="userList"></div>
+    </div>
+  `);
+
+  async function refreshUserDepsIntoSelect() {
+    const sel = userBox.querySelector("#uDept");
+    sel.replaceChildren();
+    const empty = el(`<option value="">（无部门）</option>`);
+    sel.appendChild(empty);
+    const depts = await api.listDepts();
+    for (const d of depts) {
+      const o = el(`<option></option>`);
+      o.value = String(d.id);
+      o.textContent = `${d.name} (#${d.id})`;
+      sel.appendChild(o);
+    }
+  }
+
+  async function refreshUsers() {
+    const listEl = userBox.querySelector("#userList");
+    listEl.replaceChildren();
+    try {
+      const [users, depts] = await Promise.all([api.listUsers(), api.listDepts()]);
+      const deptNameById = new Map(depts.map((d) => [d.id, d.name]));
+
+      if (users.length === 0) {
+        listEl.appendChild(el(`<div class="muted">暂无用户</div>`));
+        return;
+      }
+
+      const t = el(`
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>用户名</th>
+              <th>姓名</th>
+              <th>角色</th>
+              <th>部门</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      `);
+      const tbody = t.querySelector("tbody");
+
+      for (const u of users) {
+        const tr = el(`<tr></tr>`);
+        const deptName = u.department_id ? deptNameById.get(u.department_id) || "" : "";
+        tr.appendChild(el(`<td class="mono">${u.id}</td>`));
+        tr.appendChild(el(`<td class="mono"></td>`));
+        tr.children[1].textContent = u.username;
+        tr.appendChild(el(`<td></td>`));
+        tr.children[2].textContent = u.full_name || "";
+
+        const roleTd = el(`<td></td>`);
+        const roleSel = el(`
+          <select class="input" style="min-width: 120px;">
+            <option value="employee">employee</option>
+            <option value="approver">approver</option>
+            <option value="admin">admin</option>
+          </select>
+        `);
+        roleSel.value = u.role;
+        roleTd.appendChild(roleSel);
+        tr.appendChild(roleTd);
+
+        const deptTd = el(`<td></td>`);
+        const deptSel = el(`<select class="input" style="min-width: 160px;"></select>`);
+        deptSel.appendChild(el(`<option value="">（无）</option>`));
+        for (const d of depts) {
+          const o = el(`<option></option>`);
+          o.value = String(d.id);
+          o.textContent = d.name;
+          deptSel.appendChild(o);
+        }
+        deptSel.value = u.department_id ? String(u.department_id) : "";
+        deptTd.appendChild(deptSel);
+        tr.appendChild(deptTd);
+
+        const activeTd = el(`<td></td>`);
+        const activeSel = el(`
+          <select class="input" style="min-width: 110px;">
+            <option value="true">active</option>
+            <option value="false">disabled</option>
+          </select>
+        `);
+        activeSel.value = u.is_active ? "true" : "false";
+        activeTd.appendChild(activeSel);
+        tr.appendChild(activeTd);
+
+        const opsTd = el(`<td></td>`);
+        const saveBtn = el(`<button class="btn btn-secondary">保存</button>`);
+        const pwdBtn = el(`<button class="btn btn-secondary">重置密码</button>`);
+        opsTd.appendChild(el(`<div style="display:flex; gap:8px; flex-wrap:wrap;"></div>`));
+        opsTd.firstElementChild.appendChild(saveBtn);
+        opsTd.firstElementChild.appendChild(pwdBtn);
+        tr.appendChild(opsTd);
+
+        saveBtn.addEventListener("click", async () => {
+          try {
+            await api.updateUser(u.id, {
+              role: roleSel.value,
+              department_id: deptSel.value ? Number(deptSel.value) : null,
+              is_active: activeSel.value === "true",
+            });
+            await refreshUsers();
+          } catch (err) {
+            showError(userBox, err);
+          }
+        });
+
+        pwdBtn.addEventListener("click", async () => {
+          const pwd = prompt(`为用户 ${u.username} 设置新密码（>=6位）：`);
+          if (!pwd) return;
+          try {
+            await api.setUserPassword(u.id, pwd);
+            alert("密码已更新");
+          } catch (err) {
+            showError(userBox, err);
+          }
+        });
+
+        tbody.appendChild(tr);
+      }
+
+      listEl.appendChild(t);
+      userBox.querySelector(".pill").textContent = `共 ${users.length} 个用户`;
+    } catch (err) {
+      showError(userBox, err);
+    }
+  }
+
+  userBox.querySelector("#uCreate").addEventListener("click", async () => {
+    try {
+      const username = userBox.querySelector("#uUsername").value.trim();
+      const fullName = userBox.querySelector("#uFullName").value.trim();
+      const role = userBox.querySelector("#uRole").value;
+      const dept = userBox.querySelector("#uDept").value;
+      const password = userBox.querySelector("#uPassword").value;
+
+      await api.createUser({
+        username,
+        password,
+        full_name: fullName,
+        role,
+        department_id: dept ? Number(dept) : null,
+      });
+
+      userBox.querySelector("#uUsername").value = "";
+      userBox.querySelector("#uFullName").value = "";
+      userBox.querySelector("#uPassword").value = "";
+      await refreshUsers();
+    } catch (err) {
+      showError(userBox, err);
     }
   });
 
-  root.appendChild(wrap);
+  container.appendChild(userBox);
+  root.appendChild(container);
   appEl.replaceChildren(root);
+
+  try {
+    await refreshDepts();
+    await refreshUserDepsIntoSelect();
+    await refreshUsers();
+  } catch (err) {
+    showError(container, err);
+  }
 }
 
 async function ensureMe() {

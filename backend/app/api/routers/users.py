@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from backend.app.api.deps import get_db, require_roles
 from backend.app.core.security import hash_password
 from backend.app.db.models import User
-from backend.app.schemas.users import UserCreate, UserOut, UserUpdate
+from backend.app.schemas.users import UserCreate, UserOut, UserPasswordUpdate, UserUpdate
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -91,3 +91,18 @@ def update_user(
         is_active=user.is_active,
         department_id=user.department_id,
     )
+
+
+@router.put("/{user_id}/password", status_code=204)
+def set_password(
+    user_id: int,
+    body: UserPasswordUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("admin")),
+) -> None:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(body.password)
+    db.add(user)
+    db.commit()

@@ -23,3 +23,7 @@ class UserUpdate(BaseModel):
     role: str | None = None
     department_id: int | None = None
     is_active: bool | None = None
+
+
+class UserPasswordUpdate(BaseModel):
+    password: str = Field(min_length=6, max_length=200)
