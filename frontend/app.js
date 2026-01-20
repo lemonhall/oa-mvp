@@ -5,6 +5,36 @@ const userBarEl = document.getElementById("userBar");
 const meTextEl = document.getElementById("meText");
 const logoutBtn = document.getElementById("logoutBtn");
 
+const TYPE_LABEL = {
+  leave: "请假",
+  reimburse: "报销",
+};
+
+const STATUS_LABEL = {
+  pending: "待审批",
+  approved: "已同意",
+  rejected: "已驳回",
+};
+
+const NODE_STATUS_LABEL = {
+  not_started: "未开始",
+  pending: "待审批",
+  approved: "已同意",
+  rejected: "已驳回",
+};
+
+function labelType(type) {
+  return TYPE_LABEL[type] || type || "";
+}
+
+function labelStatus(status) {
+  return STATUS_LABEL[status] || status || "";
+}
+
+function labelNodeStatus(status) {
+  return NODE_STATUS_LABEL[status] || status || "";
+}
+
 logoutBtn.addEventListener("click", () => {
   clearToken();
   location.hash = "#/login";
@@ -137,19 +167,155 @@ async function renderMyRequests(me) {
       listEl.appendChild(el(`<div class="muted">暂无申请</div>`));
     } else {
       for (const r of items) {
-        const item = el(`
-          <div class="item">
-            <div class="item-title"></div>
-            <div class="muted"></div>
-          </div>
-        `);
-        item.querySelector(".item-title").textContent = `[${r.type}] ${r.title} — ${r.status}`;
-        item.querySelector(".muted").textContent = r.content || "";
+        const item = el(`<div class="item"></div>`);
+        const head = el(`<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;"></div>`);
+        const title = el(`<div class="item-title" style="flex:1;"></div>`);
+        title.textContent = `【${labelType(r.type)}】${r.title} — ${labelStatus(r.status)}`;
+        const btn = el(`<button class="btn btn-secondary">详情</button>`);
+        btn.addEventListener("click", () => {
+          location.hash = `#/request/${r.id}`;
+          render();
+        });
+        head.appendChild(title);
+        head.appendChild(btn);
+        item.appendChild(head);
+        const c = el(`<div class="muted"></div>`);
+        c.textContent = r.content || "";
+        item.appendChild(c);
         listEl.appendChild(item);
       }
     }
   } catch (err) {
     showError(wrap, err);
+  }
+
+  appEl.replaceChildren(root);
+}
+
+async function renderRequestDetail(me, requestId) {
+  const root = el(`<div></div>`);
+  root.appendChild(nav(me));
+
+  const wrap = el(`<div><div class="section-title">申请详情</div></div>`);
+  root.appendChild(wrap);
+
+  const box = el(`<div class="item"></div>`);
+  wrap.appendChild(box);
+
+  try {
+    const detail = await api.requestDetail(requestId);
+    const r = detail.request;
+
+    const head = el(`<div></div>`);
+    const title = el(`<div class="item-title"></div>`);
+    title.textContent = `【${labelType(r.type)}】${r.title} — ${labelStatus(r.status)}`;
+    const meta = el(`<div class="muted"></div>`);
+    meta.textContent = `审批流程：${detail.workflow_name || "（未配置）"} | 单号：${r.id}`;
+    head.appendChild(title);
+    head.appendChild(meta);
+
+    if (r.amount != null) {
+      const amt = el(`<div class="pill">金额：<span class="mono"></span></div>`);
+      amt.querySelector(".mono").textContent = String(r.amount);
+      head.appendChild(amt);
+    }
+    if (r.content) {
+      const c = el(`<div style="margin-top:10px;" class="muted"></div>`);
+      c.textContent = r.content;
+      head.appendChild(c);
+    }
+    box.appendChild(head);
+
+    const flow = el(`<div style="margin-top:12px;"></div>`);
+    flow.appendChild(el(`<div class="section-title">需要哪些岗位审批 / 当前状态</div>`));
+    if (!detail.nodes || detail.nodes.length === 0) {
+      flow.appendChild(el(`<div class="muted">暂无节点</div>`));
+    } else {
+      const t = el(
+        `<table class="table"><thead><tr><th>顺序</th><th>岗位</th><th>节点</th><th>状态</th><th>审批人</th><th>审批时间</th></tr></thead><tbody></tbody></table>`
+      );
+      const tbody = t.querySelector("tbody");
+      for (const n of detail.nodes) {
+        const tr = el(
+          `<tr><td class="mono"></td><td></td><td></td><td></td><td class="mono"></td><td class="mono"></td></tr>`
+        );
+        tr.children[0].textContent = String(n.step_order);
+        tr.children[1].textContent = `${n.position_name} (#${n.position_id})`;
+        tr.children[2].textContent = n.node_name || "";
+        tr.children[3].textContent = labelNodeStatus(n.status);
+        tr.children[4].textContent = n.decided_by_username || "";
+        tr.children[5].textContent = n.decided_at ? String(n.decided_at) : "";
+        tbody.appendChild(tr);
+      }
+      flow.appendChild(t);
+    }
+
+    const canDecide =
+      me?.role === "admin" ||
+      (r.status === "pending" &&
+        !!me?.position_id &&
+        Array.isArray(detail.nodes) &&
+        detail.nodes.some((n) => n.status === "pending" && n.position_id === me.position_id));
+
+    if (r.status === "pending" && canDecide) {
+      const actions = el(
+        `<div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+          <input class="input" style="max-width: 420px;" placeholder="审批意见（可选）" />
+          <button class="btn btn-primary">同意</button>
+          <button class="btn btn-danger">驳回</button>
+        </div>`
+      );
+      const commentEl = actions.querySelector("input");
+      const okBtn = actions.querySelector(".btn-primary");
+      const noBtn = actions.querySelector(".btn-danger");
+      okBtn.addEventListener("click", async () => {
+        try {
+          await api.decide(r.id, "approved", commentEl.value.trim());
+          await render();
+        } catch (err) {
+          showError(box, err);
+        }
+      });
+      noBtn.addEventListener("click", async () => {
+        try {
+          await api.decide(r.id, "rejected", commentEl.value.trim());
+          await render();
+        } catch (err) {
+          showError(box, err);
+        }
+      });
+      flow.appendChild(actions);
+    }
+
+    box.appendChild(flow);
+
+    const hist = el(`<div style="margin-top:12px;"></div>`);
+    hist.appendChild(el(`<div class="section-title">审批记录（时间/意见）</div>`));
+    if (!detail.history || detail.history.length === 0) {
+      hist.appendChild(el(`<div class="muted">暂无记录</div>`));
+    } else {
+      const t = el(
+        `<table class="table"><thead><tr><th>ID</th><th>节点</th><th>岗位</th><th>审批人</th><th>决策</th><th>时间</th><th>意见</th></tr></thead><tbody></tbody></table>`
+      );
+      const tbody = t.querySelector("tbody");
+      for (const h of detail.history) {
+        const tr = el(
+          `<tr><td class="mono"></td><td></td><td></td><td class="mono"></td><td></td><td class="mono"></td><td></td></tr>`
+        );
+        tr.children[0].textContent = String(h.id);
+        tr.children[1].textContent = h.step_order != null ? `${h.step_order}. ${h.node_name || ""}` : "";
+        tr.children[2].textContent = h.position_name ? `${h.position_name} (#${h.position_id})` : "";
+        tr.children[3].textContent = h.approver_username;
+        tr.children[4].textContent = labelStatus(h.decision);
+        tr.children[5].textContent = String(h.decided_at);
+        tr.children[6].textContent = h.comment || "";
+        tbody.appendChild(tr);
+      }
+      hist.appendChild(t);
+    }
+    box.appendChild(hist);
+  } catch (err) {
+    showError(box, err);
   }
 
   appEl.replaceChildren(root);
@@ -236,7 +402,10 @@ async function renderApprovals(me) {
       for (const r of items) {
         const item = el(`
           <div class="item">
-            <div class="item-title"></div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+              <div class="item-title" style="flex:1;"></div>
+              <button class="btn btn-secondary">详情</button>
+            </div>
             <div class="muted"></div>
             <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
               <input class="input" style="max-width: 420px;" placeholder="审批意见（可选）" />
@@ -245,8 +414,12 @@ async function renderApprovals(me) {
             </div>
           </div>
         `);
-        item.querySelector(".item-title").textContent = `[${r.type}] ${r.title}`;
+        item.querySelector(".item-title").textContent = `【${labelType(r.type)}】${r.title}`;
         item.querySelector(".muted").textContent = r.content || "";
+        item.querySelector(".btn.btn-secondary").addEventListener("click", () => {
+          location.hash = `#/request/${r.id}`;
+          render();
+        });
 
         const commentEl = item.querySelector("input");
         const okBtn = item.querySelector(".btn-primary");
@@ -403,7 +576,7 @@ async function renderAdmin(me) {
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
             <div class="pill"><span class="mono">#${wf.id}</span></div>
             <div style="font-weight:600;"></div>
-            <div class="pill">type: <span class="mono" data-wf-type></span></div>
+            <div class="pill">类型：<span class="mono" data-wf-type></span></div>
             <div class="spacer"></div>
             <label class="pill" style="cursor:pointer;">
               <input type="checkbox" />
@@ -412,7 +585,7 @@ async function renderAdmin(me) {
           </div>
         `);
         header.children[1].textContent = wf.name;
-        header.querySelector("[data-wf-type]").textContent = wf.request_type;
+        header.querySelector("[data-wf-type]").textContent = labelType(wf.request_type);
         const activeCb = header.querySelector('input[type="checkbox"]');
         activeCb.checked = !!wf.is_active;
         activeCb.addEventListener("change", async () => {
@@ -814,6 +987,14 @@ export async function render() {
   if (route === "/new-request") return renderNewRequest(me);
   if (route === "/approvals") return renderApprovals(me);
   if (route === "/admin") return renderAdmin(me);
+  if (route.startsWith("/request/")) {
+    const id = Number(route.replace("/request/", ""));
+    if (!Number.isFinite(id) || id <= 0) {
+      location.hash = "#/dashboard";
+      return renderDashboard(me);
+    }
+    return renderRequestDetail(me, id);
+  }
 
   location.hash = "#/dashboard";
   return renderDashboard(me);

@@ -25,21 +25,21 @@ def get_current_user(
 ) -> User:
     if creds is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录"
         )
     try:
         payload = decode_token(creds.credentials)
         username = payload.get("sub")
     except PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期，请重新登录")
 
     if not username:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期，请重新登录")
 
     user = db.scalar(select(User).where(User.username == username))
     if user is None or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="账号已停用"
         )
     return user
 
@@ -48,7 +48,7 @@ def require_roles(*roles: str):
     def _checker(user: User = Depends(get_current_user)) -> User:
         if user.role not in roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions"
+                status_code=status.HTTP_403_FORBIDDEN, detail="无权限"
             )
         return user
 

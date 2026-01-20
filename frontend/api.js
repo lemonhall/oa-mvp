@@ -43,6 +43,7 @@ export const api = {
     request("/api/announcements", { method: "POST", body: { title, content } }),
   createRequest: (payload) => request("/api/requests", { method: "POST", body: payload }),
   listMyRequests: () => request("/api/requests/mine"),
+  requestDetail: (id) => request(`/api/requests/${id}/detail`),
   listPendingApprovals: () => request("/api/approvals/pending"),
   decide: (id, decision, comment) =>
     request(`/api/approvals/${id}/decide`, { method: "POST", body: { decision, comment } }),

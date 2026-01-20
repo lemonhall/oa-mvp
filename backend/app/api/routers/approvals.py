@@ -52,18 +52,18 @@ def decide(
 ) -> RequestOut:
     r = db.get(OARequest, request_id)
     if r is None:
-        raise HTTPException(status_code=404, detail="Request not found")
+        raise HTTPException(status_code=404, detail="申请不存在")
     if r.status != "pending":
-        raise HTTPException(status_code=400, detail="Request already decided")
+        raise HTTPException(status_code=400, detail="该申请已处理")
     if r.current_node_id is None:
-        raise HTTPException(status_code=400, detail="Request has no current node")
+        raise HTTPException(status_code=400, detail="该申请未进入审批节点")
 
     node = db.get(WorkflowNode, r.current_node_id)
     if node is None:
-        raise HTTPException(status_code=400, detail="Bad workflow node")
+        raise HTTPException(status_code=400, detail="审批流节点异常")
     if user.role != "admin":
         if user.position_id is None or user.position_id != node.position_id:
-            raise HTTPException(status_code=403, detail="Not allowed")
+            raise HTTPException(status_code=403, detail="无权限")
 
     db.add(
         Approval(
